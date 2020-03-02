@@ -1,0 +1,18 @@
+version: '3.6'
+
+services:
+  mysql:
+    image: mysql:5.7.29
+    volumes:
+      - ./mysql:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ILkopTAD2ut2exVEJUh5UjehL@f
+      MYSQL_DATABASE: wordgame
+    ports:
+      - 3306:3306
+  api:
+    build:
+      context: .
+    env_file: .env.docker
+    ports:
+      - 8080:8080
