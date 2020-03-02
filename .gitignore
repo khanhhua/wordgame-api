@@ -136,3 +136,4 @@ dmypy.json
 client_secret.json
 mysql
 virtenv
+.idea
