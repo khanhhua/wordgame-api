@@ -86,6 +86,8 @@ class TermStat(db.Model):
     corrects = db.Column(db.Integer, nullable=False, default=0)
     wrongs = db.Column(db.Integer, nullable=False, default=0)
     skippeds = db.Column(db.Integer, nullable=False, default=0)
+    seconds = db.Column(db.Integer, nullable=False, default=0, comment='Seconds taken to respond to this term')
+    seconds_correct = db.Column(db.Integer, nullable=True, comment='Seconds taken to correctly answer this term')
 
 
 class WeeklyTermStat(db.Model):

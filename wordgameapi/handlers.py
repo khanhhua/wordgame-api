@@ -305,6 +305,7 @@ def create_stat():
     term_id = request.json.get('term_id')
     correct = request.json.get('correct', None)
     skipped = request.json.get('skipped', None)
+    seconds = request.json.get('seconds', 1)
 
     # TODO Check if session belongs to identity
 
@@ -325,6 +326,8 @@ def create_stat():
                 TermStat.corrects: TermStat.corrects + 1 if correct == True else TermStat.corrects,
                 TermStat.wrongs: TermStat.wrongs + 1 if correct == False else TermStat.wrongs,
                 TermStat.skippeds: TermStat.skippeds + 1 if skipped == True else TermStat.skippeds,
+                TermStat.seconds: TermStat.seconds + seconds,
+                TermStat.seconds_correct: TermStat.seconds_correct + seconds if correct == True else TermStat.seconds_correct,
             })
     else:
         db.session.add(TermStat(session_id=session_id,
@@ -332,7 +335,9 @@ def create_stat():
                                 week=week,
                                 corrects=1 if correct == True else 0,
                                 wrongs=1 if correct == False else 0,
-                                skippeds=1 if skipped == True else 0))
+                                skippeds=1 if skipped == True else 0,
+                                seconds=seconds,
+                                seconds_correct=seconds if correct == True else None))
         db.session.commit()
 
     return jsonify(ok=True)
