@@ -76,7 +76,6 @@ def login():
 
     try:
         oauth2credential = client.step2_exchange(access_code)
-        print(oauth2credential.to_json())
         user_id = oauth2credential.id_token['sub']
         user = db.session.query(User).filter(User.user_id==user_id).first()
 
@@ -104,6 +103,28 @@ def login():
                        token=token.decode())
     except (FlowExchangeError, ValueError) as e:
         return make_response(jsonify(ok=False), 400)
+
+
+@jwt_required()
+def get_profile():
+    try:
+        user_id = current_identity
+        profile = db.session.query(User)\
+            .filter(User.user_id==user_id)\
+            .one()
+        collection = db.session.query(Collection) \
+            .filter(Collection.owner_id==user_id,
+                    Collection.name=='Default',
+                    )\
+            .one()
+        print(collection)
+        return jsonify(ok=True,
+                       profile=profile,
+                       default_collection=collection)
+    except:
+        return jsonify(ok=False,
+                       error="Authentication")
+
 
 @jwt_required()
 def create_game_session():
@@ -135,12 +156,31 @@ def get_my_session():
 
     game_session = db.session.query(Session)\
         .filter(Session.user_id==identity)\
+        .order_by(-Session.created_at)\
         .first()
     if game_session is None:
         return jsonify(ok=False)
 
     return jsonify(ok=True,
-                   session=game_session)
+                   session=game_session)\
+
+
+@jwt_required()
+def delete_my_session():
+    identity = current_identity
+
+    game_session = db.session.query(Session)\
+        .filter(Session.user_id==identity)\
+        .order_by(-Session.created_at)\
+        .first()
+    if game_session is None:
+        return jsonify(ok=False)
+
+    game_session.status = Session.STATUS_DONE
+    db.session.add(game_session)
+    db.session.commit()
+
+    return jsonify(ok=True)
 
 
 def list_collections():

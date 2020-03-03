@@ -5,10 +5,14 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+@dataclass
 class User(db.Model):
     """
     WordGame does not store password or token
     """
+    user_id: str
+    provider: str
+
     # OAuth2 sub(ject)
     user_id = db.Column(db.String(25), primary_key=True, nullable=False)
     # OAuth2 provider
@@ -20,11 +24,15 @@ class Session(db.Model):
     id: str
     cursor: str
 
+    STATUS_PLAYING = 1
+    STATUS_DONE = 2
+
     id = db.Column(db.String(36), primary_key=True)
     user_id = db.Column(db.String(25))
     game_type = db.Column(db.String, nullable=False, default='gender')
     cursor = db.Column(db.String, nullable=False)
-    created_at = db.Column(db.Date, default=func.now())
+    status = db.Column(db.Integer, nullable=False, default=STATUS_PLAYING)
+    created_at = db.Column(db.DateTime, default=func.now())
 
 
 @dataclass

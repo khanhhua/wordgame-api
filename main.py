@@ -18,10 +18,14 @@ CORS(app, resources={r'/api/*': {'origins': '*', 'supports_credential': True}})
 
 app.add_url_rule("/api/auth", "login", methods=['POST'],
                  view_func=handlers.login)
+app.add_url_rule("/api/auth", "get-profile", methods=['GET'],
+                 view_func=handlers.get_profile)
 app.add_url_rule("/api/session", "create-session", methods=['POST'],
                  view_func=handlers.create_game_session)
 app.add_url_rule("/api/session", "get-session", methods=['GET'],
                  view_func=handlers.get_my_session)
+app.add_url_rule("/api/session", "delete-session", methods=['DELETE'],
+                 view_func=handlers.delete_my_session)
 app.add_url_rule("/api/me/collections", "list-my-collections", methods=['GET'],
                  view_func=handlers.list_my_collections)
 app.add_url_rule("/api/me/collections/<int:collection_id>/terms", "add-term-to-collections", methods=['POST'],
