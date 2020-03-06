@@ -324,33 +324,49 @@ def get_session_stat(session_id):
 
 @jwt_required()
 def get_weekly_performance_stat():
-    worst_performers = (db.session.query(PerformanceStat)
-                        .filter(PerformanceStat.user_id == current_identity)
-                        .filter(PerformanceStat.correct_factor != 1)
-                        .limit(100)
-                        .all()
-                        )
-    weekly_performance = (db.session.query(PerformanceStat)
-                           .from_statement(text(
-        """
-        SELECT `week` as `term_id`, '' AS user_id, '' AS word, '' AS tags, `week`,
-            AVG(confidence_factor) AS confidence_factor,
-            AVG(correct_factor) AS correct_factor
-        FROM performance_stat
-        WHERE user_id = :user_id
-        GROUP BY `week`
-        """
-                         ))
-                         .params(user_id=current_identity)
-                         .all())
+    week = (datetime.utcnow() - EPOCH).days / 7
+    # LIMIT REPORT scopes to 8 weeks ago
+    WEEKS_LIMIT = 8
+
+    types = request.args.getlist('reports')
+    report = dict()
+
+    if 'worst' in types:
+        worst_performers = (db.session.query(PerformanceStat)
+                            .filter(PerformanceStat.user_id == current_identity)
+                            .filter(PerformanceStat.correct_factor != 1)
+                            .filter(PerformanceStat.week >= week - WEEKS_LIMIT)
+                            .limit(100)
+                            .all()
+                            )
+        report['worst_performers'] = worst_performers
+
+    if 'weekly' in types:
+        weekly_performance = (db.session.query(PerformanceStat)
+                              .from_statement(text(
+            """
+            SELECT `week` as `term_id`, '' AS user_id, '' AS word, '' AS tags, `week`,
+                AVG(confidence_factor) AS confidence_factor,
+                AVG(correct_factor) AS correct_factor
+            FROM performance_stat
+            WHERE user_id = :user_id AND week >= :week
+            GROUP BY `week`
+            """
+                              ))
+                              .params(user_id=current_identity,
+                                      week=week-WEEKS_LIMIT)
+                              .all())
+        report['weekly_performance'] = [dict(week=item.week,
+                                             confidence_factor=float(item.confidence_factor),
+                                             correct_factor=float(item.correct_factor))
+                                       for item in weekly_performance]
+
+    if len(report) == 0:
+        return jsonify(ok=False,
+                       error='Invalid report(s) requested')
 
     return jsonify(ok=True,
-                   report=dict(worst_performers=worst_performers,
-                               weekly_performance=[dict(week=item.week,
-                                                        confidence_factor=float(item.confidence_factor),
-                                                        correct_factor=float(item.correct_factor))
-                                                   for item in weekly_performance]
-                               ))
+                   report=report)
 
 
 @jwt_required()
