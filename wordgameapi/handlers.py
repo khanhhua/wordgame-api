@@ -11,7 +11,7 @@ import jwt
 
 from .models import (
     db, Session, Category, Term, User, Collection,
-    TermStat, WeeklyTermStat,
+    TermStat, WeeklyTermStat, PerformanceStat,
 )
 
 JWT_SECRET = 's3cr3t'
@@ -62,7 +62,7 @@ def _term_from_collection(collection_id, offset):
         FROM `term` AS T
             LEFT JOIN `nomen` ON T.word = form
         WHERE SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
-            AND T.id = (SELECT JSON_EXTRACT(`term_ids`, :path)  FROM `collection`)
+            AND T.id = (SELECT JSON_EXTRACT(`term_ids`, :path)  FROM `collection` WHERE id = :collection_id)
         LIMIT 1 OFFSET 0;
         """
     )) \
@@ -206,6 +206,25 @@ def list_my_collections():
 
 
 @jwt_required()
+def create_collection():
+    name = request.json.get('name')
+    if name is None:
+        return make_response(jsonify(ok=False, error="Name missing"), 400)
+
+    collection = Collection(name=name, owner_id=current_identity)
+    db.session.add(collection)
+    db.session.commit()
+    db.session.refresh(collection)
+
+    return make_response(jsonify(ok=True,
+                   collection=dict(
+                       id=collection.id,
+                       name=collection.name,
+                       is_owned=True,
+                   )), 201)
+
+
+@jwt_required()
 def add_term_to_collection(collection_id):
     collection = db.session.query(Collection).filter(Collection.id==collection_id).one()
     if collection is None:
@@ -215,7 +234,11 @@ def add_term_to_collection(collection_id):
         return make_response(jsonify(ok=False), 400)
 
     term_id = request.json['term_id']
-    if term_id not in collection.term_ids:
+    if collection.term_ids is None:
+        collection.term_ids = [term_id]
+        db.session.add(collection)
+        db.session.commit()
+    elif term_id not in collection.term_ids:
         collection.term_ids = collection.term_ids + [term_id]
         db.session.add(collection)
         db.session.commit()
@@ -240,7 +263,7 @@ def next_word():
 
         # TODO Refactor this magic from_statement SQL
         term = _term_from_category(category_id, offset)
-        next_term = _term_from_collection(collection_id, offset + 1)
+        next_term = _term_from_category(category_id, offset + 1)
         has_next = next_term is not None
     elif 'collection_id' in cursor:
         collection_id = cursor['collection_id']
@@ -269,11 +292,13 @@ def get_session_stat(session_id):
         LEFT JOIN `term`       AS T ON T.id = TS.term_id
         LEFT JOIN `nomen`      AS N ON N.form = T.word
         WHERE user_id = :user_id
+            AND S.id = :session_id
             AND SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
         GROUP BY T.id, TS.week, TS.session_id, T.word, N.tags
         """
         ))\
-        .params(user_id=identity)
+        .params(user_id=identity,
+                session_id=session_id)
 
     game_type = 'gender'
 
@@ -295,6 +320,37 @@ def get_session_stat(session_id):
 
     return jsonify(ok=True,
                    report=report)
+
+
+@jwt_required()
+def get_weekly_performance_stat():
+    worst_performers = (db.session.query(PerformanceStat)
+                        .filter(PerformanceStat.user_id == current_identity)
+                        .filter(PerformanceStat.correct_factor != 1)
+                        .limit(100)
+                        .all()
+                        )
+    weekly_performance = (db.session.query(PerformanceStat)
+                           .from_statement(text(
+        """
+        SELECT `week` as `term_id`, '' AS user_id, '' AS word, '' AS tags, `week`,
+            AVG(confidence_factor) AS confidence_factor,
+            AVG(correct_factor) AS correct_factor
+        FROM performance_stat
+        WHERE user_id = :user_id
+        GROUP BY `week`
+        """
+                         ))
+                         .params(user_id=current_identity)
+                         .all())
+
+    return jsonify(ok=True,
+                   report=dict(worst_performers=worst_performers,
+                               weekly_performance=[dict(week=item.week,
+                                                        confidence_factor=float(item.confidence_factor),
+                                                        correct_factor=float(item.correct_factor))
+                                                   for item in weekly_performance]
+                               ))
 
 
 @jwt_required()

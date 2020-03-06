@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+
+from sqlalchemy import ForeignKey
 from sqlalchemy.sql import func
 from flask_sqlalchemy import SQLAlchemy
 
@@ -63,7 +65,14 @@ class Collection(db.Model):
 class Term(db.Model):
     """
     Dictionary entries
+
+    CREATE OR REPLACE VIEW term_view AS
+        SELECT DISTINCT `term`.id, word, tags
+        FROM `term` JOIN `nomen` ON word = form
+        WHERE SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
     """
+    __tablename__ = 'term_view'
+
     id: int
     word: str
     tags: str
@@ -101,3 +110,42 @@ class WeeklyTermStat(db.Model):
 
     word = db.Column(db.VARCHAR(80), nullable=False)
     tags = db.Column(db.VARCHAR(80), nullable=False)
+
+
+@dataclass
+class PerformanceStat(db.Model):
+    """
+    Performance Stat View
+
+    CREATE OR REPLACE VIEW `performance_stat` AS
+        SELECT
+           `TS`.`term_id` AS `term_id`,
+           `S`.`user_id` AS `user_id`,
+           `TS`.`week` AS `week`,
+           `T`.`word` AS `word`,
+           `T`.`tags` AS `tags`,
+           ((sum(`TS`.`seconds_correct`) / count(`TS`.`term_id`)) / (sum(`TS`.`seconds`) / count(`TS`.`term_id`))) AS `confidence_factor`,
+           (sum(`TS`.`corrects`) / sum(((`TS`.`corrects` + `TS`.`wrongs`) + `TS`.`wrongs`))) AS `correct_factor`
+        FROM (`term_stat` `TS`
+            join `term_view` `T` on((`T`.`id` = `TS`.`term_id`)))
+            join `session` S on S.`id` = TS.`session_id`
+        group by `TS`.`term_id`, `user_id`, `TS`.`week`,`T`.`word`,`T`.`tags`
+        order by `confidence_factor`,`correct_factor`;
+    """
+    __tablename__ = 'performance_stat'
+
+    term_id: int
+    user_id: str
+    week: int
+    word: str
+    tags: str
+    confidence_factor: float
+    correct_factor: float
+
+    term_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.VARCHAR(25))
+    word = db.Column(db.VARCHAR(80))
+    tags = db.Column(db.VARCHAR(80))
+    week = db.Column(db.Integer, nullable=False)
+    confidence_factor = db.Column(db.FLOAT)
+    correct_factor = db.Column(db.FLOAT)
