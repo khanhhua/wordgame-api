@@ -361,6 +361,33 @@ def get_weekly_performance_stat():
                                              correct_factor=float(item.correct_factor))
                                        for item in weekly_performance]
 
+    if 'histogram' in types:
+        histogram = (db.engine.execute(text(
+            """
+            SELECT AB.`seconds`, correct_count, wrong_count
+            FROM (SELECT DISTINCT `seconds`
+                FROM `term_stat` JOIN `session` AS S ON S.id = session_id
+                WHERE user_id = :user_id AND week >= :week) AS AB
+            LEFT JOIN (SELECT seconds_correct AS `seconds`, COUNT(*) AS correct_count
+                FROM `term_stat` JOIN `session` AS S ON S.id = session_id
+                WHERE seconds_correct IS NOT NULL AND user_id = :user_id AND week >= :week
+                GROUP BY seconds_correct) AS A ON AB.`seconds` = A.`seconds`
+            LEFT JOIN
+                (SELECT seconds, COUNT(*) AS wrong_count
+                FROM `term_stat` JOIN `session` AS S ON S.id = session_id
+                WHERE seconds_correct IS NULL AND user_id = :user_id AND week >= :week
+                GROUP BY seconds) AS B ON AB.`seconds` = B.`seconds`
+            ORDER BY AB.`seconds`;
+            """
+                    ),
+        week=week - WEEKS_LIMIT,
+        user_id=current_identity))
+        report['histogram'] = [dict(seconds=item['seconds'],
+                                    correct_count=item['correct_count'],
+                                    wrong_count=item['wrong_count'])
+                               for item in histogram
+                               ]
+
     if len(report) == 0:
         return jsonify(ok=False,
                        error='Invalid report(s) requested')
