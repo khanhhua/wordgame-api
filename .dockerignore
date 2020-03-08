@@ -1,0 +1,7 @@
+virtenv
+.dockerignore
+.git
+Dockerfile
+docker-compose.yml
+mysql
+client_secret.json

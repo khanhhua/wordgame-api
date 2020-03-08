@@ -7,9 +7,14 @@ from wordgameapi.models import db
 from wordgameapi import handlers
 from wordgameapi.auth import jwt
 
+DB_HOST = os.getenv('DB_HOST')
+DB_PORT = os.getenv('DB_PORT', '3306')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_ECHO'] = True
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:ILkopTAD2ut2exVEJUh5UjehL@f@localhost:3306/wordgame'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://{}:{}@{}:{}/wordgame'.format(DB_USER, DB_PASSWORD, DB_HOST, DB_PORT)
 app.config['JWT_AUTH_HEADER_PREFIX'] = 'Bearer'
 app.config['SECRET_KEY'] = 's3cr3t'
 
@@ -17,6 +22,8 @@ db.init_app(app)
 jwt.init_app(app)
 CORS(app, resources={r'/api/*': {'origins': '*', 'supports_credential': True}})
 
+app.add_url_rule("/api/health-check", "health-check", methods=['GET'],
+                 view_func=handlers.health_check)
 app.add_url_rule("/api/auth", "login", methods=['POST'],
                  view_func=handlers.login)
 app.add_url_rule("/api/auth", "get-profile", methods=['GET'],
@@ -48,4 +55,4 @@ if __name__ == '__main__':
     if os.getenv('GAE_ENV', '').startswith('standard'):
         app.run()  # production
     else:
-        app.run(port=8080, host="localhost", debug=True)  # localhost
+        app.run(port=8080, host="0.0.0.0", debug=True)  # localhost

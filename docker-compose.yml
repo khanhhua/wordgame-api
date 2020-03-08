@@ -10,9 +10,13 @@ services:
       MYSQL_DATABASE: wordgame
     ports:
       - 3306:3306
+    hostname: mysql
+    container_name: mysql
   api:
     build:
       context: .
+    volumes:
+      - ./client_secret.json:/app/client_secret.json
     env_file: .env.docker
     ports:
-      - 8080:8080
+      - "8080:8080"

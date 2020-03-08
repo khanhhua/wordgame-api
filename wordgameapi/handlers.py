@@ -16,7 +16,7 @@ from .models import (
 
 JWT_SECRET = 's3cr3t'
 
-client = flow_from_clientsecrets('/Users/khanhhua/dev/wordgame-api/client_secret.json',
+client = flow_from_clientsecrets('./client_secret.json',
                                  scope='email profile openid',
                                  redirect_uri='postmessage') # WTF-postmessage?!
 
@@ -71,7 +71,12 @@ def _term_from_collection(collection_id, offset):
         .first()
 
 
+def health_check():
+    return make_response("ok", 200)
+
+
 def login():
+    print("Login...")
     access_code = request.json.get('access_code')
 
     try:
