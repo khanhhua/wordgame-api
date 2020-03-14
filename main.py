@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 import os
 
 from flask import Flask
@@ -34,12 +36,21 @@ app.add_url_rule("/api/session", "get-session", methods=['GET'],
                  view_func=handlers.get_my_session)
 app.add_url_rule("/api/session", "delete-session", methods=['DELETE'],
                  view_func=handlers.delete_my_session)
+app.add_url_rule("/api/search", "search-terms", methods=['GET'],
+                 view_func=handlers.search_terms)
 app.add_url_rule("/api/me/collections", "list-my-collections", methods=['GET'],
                  view_func=handlers.list_my_collections)
+app.add_url_rule("/api/me/collections/<int:collection_id>", "get-collection", methods=['GET'],
+                 view_func=handlers.get_collection)
 app.add_url_rule("/api/me/collections", "create-collection", methods=['POST'],
                  view_func=handlers.create_collection)
+app.add_url_rule("/api/me/collections/<int:collection_id>", "update-collection", methods=['PATCH'],
+                 view_func=handlers.update_collection)
 app.add_url_rule("/api/me/collections/<int:collection_id>/terms", "add-term-to-collections", methods=['POST'],
                  view_func=handlers.add_term_to_collection)
+app.add_url_rule("/api/me/collections/<int:collection_id>/terms/<int:term_id>", "remove-term-from-collection",
+                 methods=['DELETE'],
+                 view_func=handlers.remove_term_from_collection)
 app.add_url_rule("/api/collections", "list-categories", methods=['GET'],
                  view_func=handlers.list_collections)
 app.add_url_rule("/api/words", "get-next-word", methods=['GET'],
