@@ -188,6 +188,20 @@ def delete_my_session():
     return jsonify(ok=True)
 
 
+@jwt_required()
+def search_terms():
+    query = request.args.get('q', '').strip()
+    if len(query) == 0:
+        return jsonify(ok=True,
+                       terms=[])
+
+    terms = db.session.query(Term).filter(Term.word.ilike('{}%'.format(query))).all()
+    return jsonify(ok=True,
+                   terms=[dict(id=item.id,
+                               word=item.word)
+                          for item in terms])
+
+
 def list_collections():
     collections = db.session.query(Category).all()
 
@@ -230,6 +244,49 @@ def create_collection():
 
 
 @jwt_required()
+def get_collection(collection_id):
+    collection = (db.session.query(Collection)
+                  .filter(Collection.owner_id == current_identity)
+                  .filter(Collection.id == collection_id)
+                  .one()
+                  )
+    if collection is None:
+        return make_response(jsonify(ok=False), 404)
+
+    terms = db.session.query(Term).filter(Term.id.in_(collection.term_ids)).all()
+    return make_response(jsonify(ok=True,
+                                 collection=dict(
+                                     id=collection.id,
+                                     name=collection.name,
+                                     is_owned=True,
+                                     terms=terms,
+                                 )), 200)
+
+
+@jwt_required()
+def update_collection(collection_id):
+    name = request.json.get('name')
+    if name is None:
+        return make_response(jsonify(ok=True), 200)
+
+    collection = db.session.query(Collection).filter(Collection.id == collection_id).one()
+    if collection is None:
+        return make_response(jsonify(ok=False), 404)
+
+    collection.name = name
+    db.session.add(collection)
+    db.session.commit()
+    db.session.refresh(collection)
+
+    return make_response(jsonify(ok=True,
+                   collection=dict(
+                       id=collection.id,
+                       name=collection.name,
+                       is_owned=True,
+                   )), 200)
+
+
+@jwt_required()
 def add_term_to_collection(collection_id):
     collection = db.session.query(Collection).filter(Collection.id==collection_id).one()
     if collection is None:
@@ -245,6 +302,24 @@ def add_term_to_collection(collection_id):
         db.session.commit()
     elif term_id not in collection.term_ids:
         collection.term_ids = collection.term_ids + [term_id]
+        db.session.add(collection)
+        db.session.commit()
+
+    return jsonify(ok=True,
+                   collection=collection)
+
+
+@jwt_required()
+def remove_term_from_collection(collection_id, term_id):
+    collection = db.session.query(Collection).filter(Collection.id==collection_id).one()
+    if collection is None:
+        return make_response(jsonify(ok=False), 404)
+
+    if collection.term_ids is None:
+        return jsonify(ok=True,
+                       collection=collection)
+    elif term_id in collection.term_ids:
+        collection.term_ids = [_id for _id in collection.term_ids if _id != term_id]
         db.session.add(collection)
         db.session.commit()
 
