@@ -1,3 +1,4 @@
+import os
 import json
 from math import sin, floor
 from functools import reduce
@@ -11,13 +12,15 @@ from sqlalchemy.sql import text
 from oauth2client.client import flow_from_clientsecrets, FlowExchangeError
 from flask_jwt import jwt_required, current_identity
 import jwt
+import requests
 
 from .models import (
     db, Session, Category, Term, User, Collection,
     TermStat, WeeklyTermStat, PerformanceStat,
 )
 
-JWT_SECRET = 's3cr3t'
+JWT_SECRET = os.getenv('JWT_SECRET', None)
+RECAPTCHA_SECRET = os.getenv('RECAPTCHA_SECRET', None)
 
 client = flow_from_clientsecrets('./client_secret.json',
                                  scope='email profile openid',
@@ -98,6 +101,13 @@ def _term_from_collection(collection_id, seed, offset):
             .first())
 
 
+def is_human(captcha_response):
+    payload = {'response': captcha_response, 'secret': RECAPTCHA_SECRET}
+    response = requests.post("https://www.google.com/recaptcha/api/siteverify", payload)
+    response_text = json.loads(response.text)
+    return response_text['success']
+
+
 def health_check():
     return make_response("ok", 200)
 
@@ -140,7 +150,12 @@ def login():
 @jwt_required()
 def get_profile():
     try:
-        user_id = current_identity
+        user_or_session, user_id = current_identity
+        if user_or_session == 'session':
+            return make_response(jsonify(ok=False,
+                                         error="Authentication"),
+                                 403)
+
         profile = db.session.query(User)\
             .filter(User.user_id==user_id)\
             .one()
@@ -158,11 +173,27 @@ def get_profile():
                        error="Authentication")
 
 
-@jwt_required()
 def create_game_session():
-    identity = current_identity
+    # In this case current_identity can only be
+    identity = current_identity or None
+    token = None
+    if identity is None:
+        recaptcha_token = request.json.get('recaptcha')
 
-    category_id = request.json.get('category_id') if request.json is not None else None
+        if recaptcha_token is None:
+            return make_response(jsonify(ok=False,
+                                         error='Recaptcha missing'),
+                                 400)
+
+        if not is_human(recaptcha_token):
+            return make_response(jsonify(ok=False,
+                                         error='Bad recaptcha'),
+                                 400)
+        category = _get_random_category()
+        category_id = category.id
+    else:
+        category_id = request.json.get('category_id') if request.json is not None else None
+
     collection_id = request.json.get('collection_id') if request.json is not None else None
     cursor = _create_cursor(0,
                             collection_id=collection_id,
@@ -172,24 +203,39 @@ def create_game_session():
                            game_type='gender',
                            user_id=identity,
                            cursor=cursor)
-
     db.session.add(game_session)
     db.session.commit()
     db.session.refresh(game_session)
 
+    if identity is None:
+        iat = datetime.utcnow()
+        token = jwt.encode(dict(sub='session:{}'.format(game_session.id),
+                                iat=iat,
+                                nbf=iat + timedelta(seconds=5),
+                                exp=iat + timedelta(minutes=10)
+                                ),
+                           JWT_SECRET, algorithm='HS256')
+
     return make_response(jsonify(ok=True,
-                                 session=game_session),
+                                 session=game_session,
+                                 token=token.decode()),
                          201)
 
 
 @jwt_required()
 def get_my_session():
-    identity = current_identity
+    user_or_session, identity = current_identity
 
-    game_session = db.session.query(Session)\
-        .filter(Session.user_id==identity)\
-        .order_by(-Session.created_at)\
-        .first()
+    if user_or_session == 'user':
+        game_session = db.session.query(Session)\
+            .filter(Session.user_id==identity) \
+            .order_by(-Session.created_at)\
+            .first()
+    else:
+        game_session = db.session.query(Session) \
+            .filter(Session.id == identity) \
+            .first()
+
     if game_session is None:
         return jsonify(ok=False)
 
@@ -197,14 +243,28 @@ def get_my_session():
                    session=game_session)\
 
 
+def _get_random_category():
+    count = db.session.query(Category).count()
+    return (db.session.query(Category)
+            .offset(randint(0, count))
+            .first()
+           )
+
+
 @jwt_required()
 def delete_my_session():
-    identity = current_identity
+    user_or_session, identity = current_identity
 
-    game_session = db.session.query(Session)\
-        .filter(Session.user_id==identity)\
-        .order_by(-Session.created_at)\
-        .first()
+    game_session = None
+    if user_or_session == 'user':
+        game_session = db.session.query(Session)\
+            .filter(Session.user_id==identity)\
+            .order_by(-Session.created_at)\
+            .first()
+    else:
+        game_session = db.session.query(Session) \
+            .filter(Session.id == identity) \
+            .first()
     if game_session is None:
         return jsonify(ok=False)
 
@@ -243,9 +303,14 @@ def list_collections():
 
 @jwt_required()
 def list_my_collections():
+    user_or_session, identity = current_identity
+    if user_or_session == 'session':
+        return make_response(jsonify(ok=False),
+                             403)
+
     collections = db.session\
             .query(Collection)\
-            .filter(Collection.owner_id==current_identity)\
+            .filter(Collection.owner_id==identity)\
             .all()
 
     return jsonify(ok=True,
@@ -258,11 +323,15 @@ def list_my_collections():
 
 @jwt_required()
 def create_collection():
+    user_or_session, identity = current_identity
+    if user_or_session == 'session':
+        return make_response(jsonify(ok=False),
+                             403)
     name = request.json.get('name')
     if name is None:
         return make_response(jsonify(ok=False, error="Name missing"), 400)
 
-    collection = Collection(name=name, owner_id=current_identity)
+    collection = Collection(name=name, owner_id=identity)
     db.session.add(collection)
     db.session.commit()
     db.session.refresh(collection)
@@ -277,8 +346,13 @@ def create_collection():
 
 @jwt_required()
 def get_collection(collection_id):
+    user_or_session, identity = current_identity
+    if user_or_session == 'session':
+        return make_response(jsonify(ok=False),
+                             403)
+
     collection = (db.session.query(Collection)
-                  .filter(Collection.owner_id == current_identity)
+                  .filter(Collection.owner_id == identity)
                   .filter(Collection.id == collection_id)
                   .one()
                   )
@@ -299,11 +373,20 @@ def get_collection(collection_id):
 
 @jwt_required()
 def update_collection(collection_id):
+    user_or_session, identity = current_identity
+    if user_or_session == 'session':
+        return make_response(jsonify(ok=False),
+                             403)
+
     name = request.json.get('name')
     if name is None:
         return make_response(jsonify(ok=True), 200)
 
-    collection = db.session.query(Collection).filter(Collection.id == collection_id).one()
+    collection = (db.session.query(Collection)
+                  .filter(Collection.owner_id == identity)
+                  .filter(Collection.id == collection_id)
+                  .first()
+                  )
     if collection is None:
         return make_response(jsonify(ok=False), 404)
 
@@ -322,7 +405,16 @@ def update_collection(collection_id):
 
 @jwt_required()
 def add_term_to_collection(collection_id):
-    collection = db.session.query(Collection).filter(Collection.id==collection_id).one()
+    user_or_session, identity = current_identity
+    if user_or_session == 'session':
+        return make_response(jsonify(ok=False),
+                             403)
+
+    collection = (db.session.query(Collection)
+                  .filter(Collection.owner_id == identity)
+                  .filter(Collection.id==collection_id)
+                  .first()
+                  )
     if collection is None:
         return make_response(jsonify(ok=False), 404)
 
@@ -345,7 +437,16 @@ def add_term_to_collection(collection_id):
 
 @jwt_required()
 def remove_term_from_collection(collection_id, term_id):
-    collection = db.session.query(Collection).filter(Collection.id==collection_id).one()
+    user_or_session, identity = current_identity
+    if user_or_session == 'session':
+        return make_response(jsonify(ok=False),
+                             403)
+
+    collection = (db.session.query(Collection)
+                  .filter(Collection.owner_id == identity)
+                  .filter(Collection.id==collection_id)
+                  .first()
+                  )
     if collection is None:
         return make_response(jsonify(ok=False), 404)
 
@@ -361,6 +462,7 @@ def remove_term_from_collection(collection_id, term_id):
                    collection=collection)
 
 
+@jwt_required()
 def next_word():
     raw_cursor = request.args.get('cursor')
     if raw_cursor is None:
@@ -398,7 +500,11 @@ def next_word():
 
 @jwt_required()
 def get_session_stat(session_id):
-    identity = current_identity
+    user_or_session, identity = current_identity
+    if user_or_session == 'session' and session_id != identity:
+        return make_response(jsonify(ok=False),
+                             403)
+
     rows = db.session.query(WeeklyTermStat).from_statement(text(
         """
         SELECT T.id, TS.week, TS.session_id, T.word, N.tags,
@@ -407,14 +513,12 @@ def get_session_stat(session_id):
         LEFT JOIN `session`    AS S ON S.id = TS.session_id
         LEFT JOIN `term`       AS T ON T.id = TS.term_id
         LEFT JOIN `nomen`      AS N ON N.form = T.word
-        WHERE user_id = :user_id
-            AND S.id = :session_id
+        WHERE S.id = :session_id
             AND SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
         GROUP BY T.id, TS.week, TS.session_id, T.word, N.tags
         """
         ))\
-        .params(user_id=identity,
-                session_id=session_id)
+        .params(session_id=session_id)
 
     game_type = 'gender'
 
@@ -440,6 +544,12 @@ def get_session_stat(session_id):
 
 @jwt_required()
 def get_weekly_performance_stat():
+    user_or_session, identity = current_identity
+    if user_or_session == 'session':
+        return jsonify(ok=True,
+                       report={}
+                       )
+
     week = (datetime.utcnow() - EPOCH).days / 7
     # LIMIT REPORT scopes to 8 weeks ago
     WEEKS_LIMIT = 8
@@ -449,7 +559,7 @@ def get_weekly_performance_stat():
 
     if 'worst' in types:
         worst_performers = (db.session.query(PerformanceStat)
-                            .filter(PerformanceStat.user_id == current_identity)
+                            .filter(PerformanceStat.user_id == identity)
                             .filter(PerformanceStat.correct_factor != 1)
                             .filter(PerformanceStat.week >= week - WEEKS_LIMIT)
                             .limit(100)
@@ -514,7 +624,7 @@ def get_weekly_performance_stat():
 
 @jwt_required()
 def create_stat():
-    identity = current_identity
+    user_or_session, identity = current_identity
     week = (datetime.utcnow() - EPOCH).days / 7
     session_id = request.json.get('session_id')
     term_id = request.json.get('term_id')
