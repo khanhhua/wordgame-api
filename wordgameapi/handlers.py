@@ -1,4 +1,5 @@
 import json
+from math import sin, floor
 from functools import reduce
 from datetime import datetime, timedelta
 from base64 import b64encode, b64decode
@@ -85,24 +86,16 @@ def _term_from_collection(collection_id, seed, offset):
                  .one()
                  )
     count = len(collection.term_ids)
+    if offset >= count:
+        return None
 
-    return db.session.query(Term) \
-        .from_statement(text(
-        """
-        SELECT DISTINCT T.id, T.word, tags, MOD(T.id, SIN(:seed) * :count -  FLOOR(SIN(:seed) * :count)) AS r
-        FROM `term` AS T
-            LEFT JOIN `nomen` ON T.word = form
-        WHERE SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
-            AND T.id = (SELECT JSON_EXTRACT(`term_ids`, :path)  FROM `collection` WHERE id = :collection_id)
-        ORDER BY r
-        LIMIT 1 OFFSET 0;
-        """
-    )) \
-        .params(collection_id=collection_id,
-                seed=seed,
-                count=count,
-                path='$[{}]'.format(offset)) \
-        .first()
+    data = sorted([(term_id, term_id % ((sin(seed) * count) - floor(sin(seed) * count))) for term_id in collection.term_ids],
+                  key=lambda item: item[1])
+    selected_term_id = data[offset][0]
+
+    return (db.session.query(Term)
+            .filter(Term.id == selected_term_id)
+            .first())
 
 
 def health_check():
