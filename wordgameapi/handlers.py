@@ -195,7 +195,12 @@ def search_terms():
         return jsonify(ok=True,
                        terms=[])
 
-    terms = db.session.query(Term).filter(Term.word.ilike('{}%'.format(query))).all()
+    terms = (db.session.query(Term)
+             .distinct()
+             .filter(Term.word.ilike('{}%'.format(query)))
+             .filter(Term.tags.like('SUB:NOM:SIN%'))
+             .all()
+             )
     return jsonify(ok=True,
                    terms=[dict(id=item.id,
                                word=item.word)
@@ -253,7 +258,9 @@ def get_collection(collection_id):
     if collection is None:
         return make_response(jsonify(ok=False), 404)
 
-    terms = [] if collection.term_ids is None else db.session.query(Term).filter(Term.id.in_(collection.term_ids)).all()
+    terms = [] if collection.term_ids is None else (db.session.query(Term)
+                                                    .filter(Term.id.in_(collection.term_ids))
+                                                    .all())
     return make_response(jsonify(ok=True,
                                  collection=dict(
                                      id=collection.id,
