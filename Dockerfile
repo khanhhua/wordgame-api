@@ -11,4 +11,4 @@ RUN python -m pip install --upgrade pip setuptools wheel && \
     pip install -r requirements.txt
 
 EXPOSE 8080
-CMD python main.py
+CMD python wsgi.py
