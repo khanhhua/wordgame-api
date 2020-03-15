@@ -253,7 +253,7 @@ def get_collection(collection_id):
     if collection is None:
         return make_response(jsonify(ok=False), 404)
 
-    terms = db.session.query(Term).filter(Term.id.in_(collection.term_ids)).all()
+    terms = [] if collection.term_ids is None else db.session.query(Term).filter(Term.id.in_(collection.term_ids)).all()
     return make_response(jsonify(ok=True,
                                  collection=dict(
                                      id=collection.id,
