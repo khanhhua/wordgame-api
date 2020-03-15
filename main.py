@@ -15,12 +15,14 @@ DB_PORT = os.getenv('DB_PORT', '3306')
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 
+JWT_SECRET = os.getenv('JWT_SECRET', None)
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ECHO'] = DEBUG != False
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://{}:{}@{}:{}/wordgame'.format(DB_USER, DB_PASSWORD, DB_HOST, DB_PORT)
 app.config['JWT_AUTH_HEADER_PREFIX'] = 'Bearer'
-app.config['SECRET_KEY'] = 's3cr3t'
+app.config['SECRET_KEY'] = JWT_SECRET
 
 db.init_app(app)
 jwt.init_app(app)
