@@ -10,7 +10,7 @@ from flask import make_response, jsonify, request
 from uuid import uuid4
 from sqlalchemy.sql import text
 from oauth2client.client import flow_from_clientsecrets, FlowExchangeError
-from flask_jwt import jwt_required, current_identity
+from flask_jwt import jwt_required, current_identity, _jwt_required
 import jwt
 import requests
 
@@ -22,7 +22,7 @@ from .models import (
 JWT_SECRET = os.getenv('JWT_SECRET', None)
 RECAPTCHA_SECRET = os.getenv('RECAPTCHA_SECRET', None)
 
-client = flow_from_clientsecrets('./client_secret.json',
+client = flow_from_clientsecrets('/Users/khanhhua/dev/wordgame-api/client_secret.json',
                                  scope='email profile openid',
                                  redirect_uri='postmessage') # WTF-postmessage?!
 
@@ -113,7 +113,6 @@ def health_check():
 
 
 def login():
-    print("Login...")
     access_code = request.json.get('access_code')
 
     try:
@@ -174,10 +173,16 @@ def get_profile():
 
 
 def create_game_session():
-    # In this case current_identity can only be
-    identity = current_identity or None
+    try:
+        _jwt_required(None)
+    except:
+        pass
+    identity = None
     token = None
-    if identity is None:
+
+    _current_identity = current_identity._get_current_object()
+
+    if _current_identity is None or _current_identity[0] == 'session':
         recaptcha_token = request.json.get('recaptcha')
 
         if recaptcha_token is None:
@@ -193,6 +198,7 @@ def create_game_session():
         category_id = category.id
     else:
         category_id = request.json.get('category_id') if request.json is not None else None
+        user_or_session, identity = _current_identity
 
     collection_id = request.json.get('collection_id') if request.json is not None else None
     cursor = _create_cursor(0,
@@ -214,11 +220,11 @@ def create_game_session():
                                 nbf=iat + timedelta(seconds=5),
                                 exp=iat + timedelta(minutes=10)
                                 ),
-                           JWT_SECRET, algorithm='HS256')
+                           JWT_SECRET, algorithm='HS256').decode()
 
     return make_response(jsonify(ok=True,
                                  session=game_session,
-                                 token=token.decode()),
+                                 token=token),
                          201)
 
 
@@ -246,7 +252,7 @@ def get_my_session():
 def _get_random_category():
     count = db.session.query(Category).count()
     return (db.session.query(Category)
-            .offset(randint(0, count))
+            .offset(randint(0, count - 1))
             .first()
            )
 
@@ -579,7 +585,7 @@ def get_weekly_performance_stat():
             GROUP BY `week`
             """
                               ))
-                              .params(user_id=current_identity,
+                              .params(user_id=identity,
                                       week=week-WEEKS_LIMIT)
                               .all())
         report['weekly_performance'] = [dict(week=item.week,
@@ -607,7 +613,7 @@ def get_weekly_performance_stat():
             """
                     ),
         week=week - WEEKS_LIMIT,
-        user_id=current_identity))
+        user_id=identity))
         report['histogram'] = [dict(seconds=item['seconds'],
                                     correct_count=item['correct_count'],
                                     wrong_count=item['wrong_count'])
@@ -624,7 +630,6 @@ def get_weekly_performance_stat():
 
 @jwt_required()
 def create_stat():
-    user_or_session, identity = current_identity
     week = (datetime.utcnow() - EPOCH).days / 7
     session_id = request.json.get('session_id')
     term_id = request.json.get('term_id')
