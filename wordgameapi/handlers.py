@@ -2,6 +2,8 @@ import json
 from functools import reduce
 from datetime import datetime, timedelta
 from base64 import b64encode, b64decode
+from random import randint
+
 from flask import make_response, jsonify, request
 from uuid import uuid4
 from sqlalchemy.sql import text
@@ -23,50 +25,82 @@ client = flow_from_clientsecrets('./client_secret.json',
 EPOCH = datetime(1970, 1, 1)
 
 
-def _create_cursor(offset, collection_id=None, category_id=None):
+def _create_cursor(offset, seed=None, collection_id=None, category_id=None):
+    if seed is None:
+        seed = randint(1, 100)
     if collection_id is None and category_id is None:
         raise ValueError('Invalid param')
 
     if collection_id is not None:
         return b64encode(json.dumps(dict(collection_id=collection_id,
+                                         seed=seed,
                                          offset=offset)).encode('utf8')).decode('utf8')
     else:
         return b64encode(json.dumps(dict(category_id=category_id,
+                                         seed=seed,
                                          offset=offset)).encode('utf8')).decode('utf8')
 
 
-def _term_from_category(category_id, offset):
+def _term_from_category(category_id, seed, offset):
+    count_query = db.engine.execute(text(
+        """
+        SELECT COUNT(x.id) AS count_ FROM (
+            SELECT DISTINCT `term`.id, word, tags FROM `term`
+                  LEFT JOIN `nomen` ON word = form
+                WHERE SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
+                  AND synset_id in
+                    (SELECT `synset_id` FROM `synset` AS S JOIN `category_link` AS CL ON S.id = CL.synset_id
+                        JOIN `category` AS C ON C.id = CL.category_id
+                        WHERE C.id = :category_id)
+        ) AS x
+        """
+        ),
+        category_id=category_id)
+    count = list(count_query)[0]['count_']
+
     return db.session.query(Term)\
         .from_statement(text(
             """
-            SELECT DISTINCT `term`.id, word, tags FROM `term`
-              LEFT JOIN `nomen` ON word = form
+            SELECT DISTINCT `term`.id, word, tags, MOD(`term`.id, SIN(:seed) * :count -  FLOOR(SIN(:seed) * :count)) AS r
+            FROM `term` LEFT JOIN `nomen` ON word = form
             WHERE SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
               AND synset_id in
                 (SELECT `synset_id` FROM `synset` AS S JOIN `category_link` AS CL ON S.id = CL.synset_id
                     JOIN `category` AS C ON C.id = CL.category_id
                     WHERE C.id = :category_id)
+            ORDER BY r
             LIMIT 1 OFFSET :offset
             """
         ))\
         .params(category_id=category_id,
+                seed=seed,
+                count=count,
                 offset=offset)\
         .first()
 
 
-def _term_from_collection(collection_id, offset):
+def _term_from_collection(collection_id, seed, offset):
+    collection = (db.session.query(Collection)
+                 .filter(Collection.id==collection_id)
+                 .one()
+                 )
+    count = len(collection.term_ids)
+
     return db.session.query(Term) \
         .from_statement(text(
         """
-        SELECT DISTINCT T.id, T.word, tags
+        SELECT DISTINCT T.id, T.word, tags, MOD(T.id, SIN(:seed) * :count -  FLOOR(SIN(:seed) * :count)) AS r
         FROM `term` AS T
             LEFT JOIN `nomen` ON T.word = form
         WHERE SUBSTR(tags, 1, 11) = 'SUB:NOM:SIN'
             AND T.id = (SELECT JSON_EXTRACT(`term_ids`, :path)  FROM `collection` WHERE id = :collection_id)
+        ORDER BY r
         LIMIT 1 OFFSET 0;
         """
     )) \
         .params(collection_id=collection_id,
+                seed=seed,
+                count=count,
                 path='$[{}]'.format(offset)) \
         .first()
 
@@ -344,24 +378,26 @@ def next_word():
     category_id = None
     collection_id = None
     offset = cursor['offset']
+    seed = cursor['seed']
 
     if 'category_id' in cursor:
         category_id = cursor['category_id']
 
         # TODO Refactor this magic from_statement SQL
-        term = _term_from_category(category_id, offset)
-        next_term = _term_from_category(category_id, offset + 1)
+        term = _term_from_category(category_id, seed, offset)
+        next_term = _term_from_category(category_id, seed, offset + 1)
         has_next = next_term is not None
     elif 'collection_id' in cursor:
         collection_id = cursor['collection_id']
-        term = _term_from_collection(collection_id, offset)
-        next_term = _term_from_collection(collection_id, offset + 1)
+        term = _term_from_collection(collection_id, seed, offset)
+        next_term = _term_from_collection(collection_id, seed, offset + 1)
         has_next = next_term is not None
 
     return jsonify(ok=True,
                    term=term,
                    has_next=has_next,
                    cursor=_create_cursor(offset + 1,
+                                         seed=seed,
                                          category_id=category_id,
                                          collection_id=collection_id)
                    )
