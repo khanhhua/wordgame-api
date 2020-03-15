@@ -15,6 +15,7 @@ DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ECHO'] = True
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://{}:{}@{}:{}/wordgame'.format(DB_USER, DB_PASSWORD, DB_HOST, DB_PORT)
 app.config['JWT_AUTH_HEADER_PREFIX'] = 'Bearer'
