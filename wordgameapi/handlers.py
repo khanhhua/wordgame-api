@@ -22,7 +22,7 @@ from .models import (
 JWT_SECRET = os.getenv('JWT_SECRET', None)
 RECAPTCHA_SECRET = os.getenv('RECAPTCHA_SECRET', None)
 
-client = flow_from_clientsecrets('/Users/khanhhua/dev/wordgame-api/client_secret.json',
+client = flow_from_clientsecrets('/client_secret.json',
                                  scope='email profile openid',
                                  redirect_uri='postmessage') # WTF-postmessage?!
 
