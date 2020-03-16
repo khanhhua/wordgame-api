@@ -1,5 +1,6 @@
 import os
 import json
+from time import time
 from math import sin, floor
 from functools import reduce
 from datetime import datetime, timedelta
@@ -84,21 +85,17 @@ def _term_from_category(category_id, seed, offset):
 
 
 def _term_from_collection(collection_id, seed, offset):
-    collection = (db.session.query(Collection)
-                 .filter(Collection.id==collection_id)
-                 .one()
-                 )
+    collection = Collection.query.get(collection_id)
     count = len(collection.term_ids)
     if offset >= count:
         return None
 
-    data = sorted([(term_id, term_id % ((sin(seed) * count) - floor(sin(seed) * count))) for term_id in collection.term_ids],
+    data = sorted([(i, i % ((sin(seed) * count) - floor(sin(seed) * count))) for i in range(0, count)],
                   key=lambda item: item[1])
-    selected_term_id = data[offset][0]
+    selected_term_id = collection.term_ids[data[offset][0]]
+    term = Term.query.get(selected_term_id)
 
-    return (db.session.query(Term)
-            .filter(Term.id == selected_term_id)
-            .first())
+    return term
 
 
 def is_human(captcha_response):
