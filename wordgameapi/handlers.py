@@ -1,6 +1,5 @@
 import os
 import json
-from time import time
 from math import sin, floor
 from functools import reduce
 from datetime import datetime, timedelta
@@ -22,6 +21,7 @@ from .models import (
 
 JWT_SECRET = os.getenv('JWT_SECRET', None)
 RECAPTCHA_SECRET = os.getenv('RECAPTCHA_SECRET', None)
+MAX_COLLECTION_COUNT = os.getenv('MAX_COLLECTION_COUNT', 10)
 
 client = flow_from_clientsecrets('./client_secret.json',
                                  scope='email profile openid',
@@ -333,6 +333,10 @@ def create_collection():
     name = request.json.get('name')
     if name is None:
         return make_response(jsonify(ok=False, error="Name missing"), 400)
+
+    count = Collection.query.filter(Collection.owner_id == identity).count()
+    if count >= MAX_COLLECTION_COUNT:
+        return make_response(jsonify(ok=False, error="Max reached"), 400)
 
     collection = Collection(name=name, owner_id=identity)
     db.session.add(collection)
