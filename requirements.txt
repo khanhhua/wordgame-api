@@ -11,7 +11,7 @@ Flask-JWT==0.3.2
 Flask-Migrate==2.5.2
 Flask-Script==2.0.6
 Flask-SQLAlchemy==2.4.1
-httplib2==0.18.0
+httplib2==0.19.0
 idna==2.9
 itsdangerous==1.1.0
 jaraco.classes==3.1.0
