@@ -41,5 +41,5 @@ tempora==2.1.0
 update==0.0.1
 urllib3==1.25.8
 uuid==1.30
-Werkzeug==1.0.0
+Werkzeug==3.0.3
 zc.lockfile==2.0
